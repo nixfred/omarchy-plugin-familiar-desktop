@@ -49,6 +49,12 @@ expected_abi='efb50993780079460b0cbed1363e2166a2de1d9f_aq_0.15_hu_0.14_hg_0.5_hc
 [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] || { echo 'Familiar requires Linux x86_64.' >&2; exit 1; }
 abi="$(hyprctl version | sed -n 's/^Version ABI string: //p')"
 [[ "$abi" == "$expected_abi" ]] || { printf 'Unsupported Hyprland ABI: %s\nExpected: %s\nNothing installed.\n' "$abi" "$expected_abi" >&2; exit 1; }
+# Setup refuses while Omarchy's titlebar package is installed (issue #74). Stop
+# before registration, unloading or disabling so an existing dock keeps working.
+if [[ -e /usr/lib/omarchy-hyprland-titlebars/titlebars.so ]]; then
+  echo "Omarchy's titlebar package is installed. Familiar setup cannot complete until official-package migration (issue #74). Nothing was installed, disabled or changed." >&2
+  exit 1
+fi
 if [[ -L "$plugin_dir" || ( -e "$plugin_dir" && ! -d "$plugin_dir/.git" ) ]]; then
   echo "Refusing to replace an unmanaged directory: $plugin_dir" >&2; exit 1
 fi

@@ -8,10 +8,14 @@ const {spawnSync} = require('node:child_process');
 const template = fs.readFileSync(path.resolve(__dirname, '../install.sh'), 'utf8');
 const sourceSha = 'bda1ec617966b11fb8470788c74019350b38838f';
 let passed = 0;
-function run({existing=false, dirty=false, repair=false, failRepair=false, missing=false, style='mac', fault='', arch='x86_64', noCompiler=false, badAbi=false, titlebarFault='', lifecycle='', oldVersion='0.1.0', ignored='', flaky='' }={}) {
+function run({existing=false, dirty=false, repair=false, failRepair=false, missing=false, style='mac', fault='', arch='x86_64', noCompiler=false, badAbi=false, titlebarFault='', lifecycle='', oldVersion='0.1.0', ignored='', flaky='', official=false }={}) {
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'familiar-install-'));
  try {
-  const installer=path.join(root,'install.sh');fs.writeFileSync(installer,template.replace('@SOURCE_SHA@',sourceSha));
+  // Relocate Omarchy's titlebar package path into the fixture so its presence can be simulated.
+  const officialLibrary=path.join(root,'official/titlebars.so');
+  if(official){fs.mkdirSync(path.dirname(officialLibrary));fs.writeFileSync(officialLibrary,'official package');}
+  const withOfficial=source=>source.replaceAll('/usr/lib/omarchy-hyprland-titlebars/titlebars.so',officialLibrary);
+  const installer=path.join(root,'install.sh');fs.writeFileSync(installer,withOfficial(template.replace('@SOURCE_SHA@',sourceSha)));
   const bin=path.join(root,'bin');fs.mkdirSync(bin);
   const plugin=path.join(root,'.config/omarchy/plugins/io.github.tcballard.familiar-desktop');
   // Bar placement reads XDG paths; keep them inside this fixture home, never the developer's desktop.
@@ -21,7 +25,7 @@ function run({existing=false, dirty=false, repair=false, failRepair=false, missi
   fs.writeFileSync(path.join(fixture,'manifest.json'),'{}');
   fs.copyFileSync('bar-placement.sh',path.join(fixture,'bar-placement.sh'));
   fs.copyFileSync(path.resolve(__dirname,'../install-backend.sh'),path.join(fixture,'install-backend.sh'));
-  fs.copyFileSync(path.resolve(__dirname,'../install-titlebars.sh'),path.join(fixture,'install-titlebars.sh'));
+  fs.writeFileSync(path.join(fixture,'install-titlebars.sh'),withOfficial(fs.readFileSync(path.resolve(__dirname,'../install-titlebars.sh'),'utf8')));
   fs.writeFileSync(path.join(fixture,'build.sh'),'echo forbidden-build >> "$LOG"; exit 99\n');
   const old='previous backend';fs.writeFileSync(path.join(fixture,'bin/familiar-desktop'),old);
   const asset=path.join(root,'asset');
@@ -110,3 +114,13 @@ for(const ignored of ['notes.qml','bin/.download.old/asset']) {
 const incompatible=run({existing:true,lifecycle:'success',badAbi:true});
 assert.doesNotMatch(incompatible.log,/plugin add|old-helper|plugin disable|checkout/);
 console.log('14 update lifecycle scenarios passed: old-version migration, restore/unload ordering, unmanaged/untracked/ignored files, Git errors, ABI refusal and failed checkout.');
+// Omarchy's titlebar package makes setup refuse (issue #74). Refuse before
+// registration, unloading, disabling or checkout so a working dock is kept.
+for(const existing of [false,true]) {
+ const result=run({existing,lifecycle:existing?'success':'',official:true});
+ assert.notEqual(result.status,0);
+ assert.match(result.stderr,/titlebar package is installed/);
+ assert.doesNotMatch(result.stderr,/disabled for this update/);
+ assert.doesNotMatch(result.log,/plugin add|old-helper|plugin disable|checkout --detach|curl|plugin enable/);
+}
+console.log('Official titlebar package: fresh and update refusal before any change passed.');
